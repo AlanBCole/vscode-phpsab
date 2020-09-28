@@ -1,4 +1,8 @@
 # Change Log
+## 0.0.12
+-  Added a central logging class
+-  Added a notification for errors from phpcs and phpcbf if a rules is not found
+
 ## 0.0.11
 -  Remove phpclikill method. 
 -  Update dependencies

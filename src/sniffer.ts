@@ -24,8 +24,9 @@ import { Configuration } from "./configuration";
 import { Settings } from "./interfaces/settings";
 import { PHPCSReport, PHPCSMessageType } from "./interfaces/phpcs-report";
 import { StandardsPathResolver } from "./resolvers/standards-path-resolver";
-import { spawn, ChildProcess, exec } from "child_process";
+import { spawn } from "child_process";
 import { debounce } from "lodash";
+import { Logger } from "./logger";
 
 const enum runConfig {
     save = "onSave",
@@ -49,7 +50,11 @@ export class Sniffer {
      */
     private runnerCancellations: Map<Uri, CancellationTokenSource> = new Map();
 
-    constructor(subscriptions: Disposable[], config: Settings) {
+    constructor(
+        subscriptions: Disposable[],
+        config: Settings,
+        private logger: Logger
+    ) {
         this.config = config;
         if (config.resources[0].snifferEnable === false) {
             return;
@@ -93,7 +98,7 @@ export class Sniffer {
             return;
         }
 
-        let configuration = new Configuration();
+        let configuration = new Configuration(this.logger);
         let config = await configuration.load();
         this.config = config;
 
@@ -190,10 +195,7 @@ export class Sniffer {
         ) {
             return;
         }
-
-        if (this.config.debug) {
-            console.time("sniffer");
-        }
+        this.logger.time("Sniffer");
 
         const oldRunner = this.runnerCancellations.get(document.uri);
         if (oldRunner) {
@@ -208,7 +210,7 @@ export class Sniffer {
         const standard = await new StandardsPathResolver(
             document,
             resourceConf,
-            this.config.debug
+            this.logger
         ).resolve();
         const lintArgs = this.getArgs(document, standard);
 
@@ -223,16 +225,12 @@ export class Sniffer {
             encoding: "utf8",
             tty: true,
         };
-
-        if (this.config.debug) {
-            console.log("----- SNIFFER -----");
-            console.log(
-                "SNIFFER args: " +
-                    resourceConf.executablePathCS +
-                    " " +
-                    lintArgs.join(" ")
-            );
-        }
+        this.logger.logInfo(
+            "SNIFFER COMMAND: " +
+                        resourceConf.executablePathCS +
+                        " " +
+                        lintArgs.join(" ")
+        );
 
         const sniffer = spawn(resourceConf.executablePathCS, lintArgs, options);
 
@@ -294,8 +292,8 @@ export class Sniffer {
                         message += `${stderr}\n`;
                     }
                     message += error.toString();
-
-                    console.error(`SNIFFER: ${message}`);
+                    window.showErrorMessage(message);
+                    this.logger.logError(message);
                     reject(message);
                 }
                 this.diagnosticCollection.set(document.uri, diagnostics);
@@ -305,11 +303,6 @@ export class Sniffer {
         });
 
         window.setStatusBarMessage("PHP Sniffer: validating…", done);
-
-        if (this.config.debug) {
-            console.log(sniffer);
-            console.timeEnd("sniffer");
-            console.log("----- SNIFFER END -----");
-        }
+        this.logger.timeEnd("Sniffer");
     }
 }

@@ -1,3 +1,7 @@
+/* --------------------------------------------------------------------------------------------
+ * Copyright (c) 2019 Samuel Hilson. All rights reserved.
+ * Licensed under the MIT License. See License.md in the project root for license information.
+ * ------------------------------------------------------------------------------------------ */
 "use strict";
 
 import * as spawn from "cross-spawn";
@@ -16,11 +20,20 @@ import {
     workspace,
     ConfigurationChangeEvent,
 } from "vscode";
-import { SpawnSyncOptions, SpawnSyncOptionsWithBufferEncoding, SpawnSyncOptionsWithStringEncoding } from "child_process";
+import { SpawnSyncOptions } from "child_process";
+import { Logger } from "./logger";
 export class Fixer {
     public config!: Settings;
 
-    constructor(subscriptions: Disposable[], config: Settings) {
+    constructor(
+
+        subscriptions: Disposable[],
+
+          config: Settings,
+
+          private logger: Logger
+
+    ) {
         this.config = config;
         workspace.onDidChangeConfiguration(
             this.loadSettings,
@@ -38,7 +51,7 @@ export class Fixer {
         ) {
             return;
         }
-        let configuration = new Configuration();
+        let configuration = new Configuration(this.logger);
         let config = await configuration.load();
         this.config = config;
     }
@@ -66,7 +79,7 @@ export class Fixer {
      * run the fixer process
      * @param document
      */
-    private async format(document: TextDocument) {
+    private async format(document: TextDocument, range: Range) {
         const workspaceFolder = workspace.getWorkspaceFolder(document.uri);
         if (!workspaceFolder) {
             return "";
@@ -82,21 +95,18 @@ export class Fixer {
             );
             return "";
         }
-
-        if (this.config.debug) {
-            console.time("fixer");
-        }
+        this.logger.time('Fixer');
 
         // setup and spawn fixer process
         const standard = await new StandardsPathResolver(
             document,
             resourceConf,
-            this.config.debug
+            this.logger
         ).resolve();
 
         const lintArgs = this.getArgs(document, standard);
 
-        let fileText = document.getText();
+        let fileText = document.getText(range);
 
         const options: SpawnSyncOptions = {
             cwd:
@@ -108,15 +118,12 @@ export class Fixer {
             input: fileText,
         };
 
-        if (this.config.debug) {
-            console.log("----- FIXER -----");
-            console.log(
-                "FIXER args: " +
+        this.logger.logInfo(
+            "FIXER COMMAND: " +
                     resourceConf.executablePathCBF +
                     " " +
                     lintArgs.join(" ")
-            );
-        }
+        );
 
         const fixer = spawn.sync(
             resourceConf.executablePathCBF,
@@ -198,18 +205,10 @@ export class Fixer {
             }
             default:
                 error = errors[fixer.status];
-                if (this.config.debug) {
-                    console.log("----- FIXER STDOUT -----");
-                    console.log(fixed);
-                    console.log("----- FIXER STDOUT END -----");
-                }
+                this.logger.logError(fixed);
         }
 
-        if (this.config.debug) {
-            console.log(fixer);
-            console.timeEnd("fixer");
-            console.log("----- FIXER END -----");
-        }
+        this.logger.timeEnd('Fixer');
 
         if (error !== "") {
             return Promise.reject(error);
@@ -229,7 +228,7 @@ export class Fixer {
             let lastLine = document.lineAt(document.lineCount - 1);
             let range = new Range(new Position(0, 0), lastLine.range.end);
 
-            this.format(document)
+            this.format(document, range)
                 .then((text) => {
                     if (text.length > 0) {
                         resolve([new TextEdit(range, text)]);
